@@ -7,6 +7,7 @@ class RTree {
 private:
     int m;
     int M;
+    size_t dataPoints = 0;
     Node *root = nullptr;
 
     // Returns the the additional area the MBR would have if data were inserted
@@ -63,7 +64,9 @@ private:
         int seed1Index = 0;
         for (int i = 0; i < node->children.size() - 1; ++i) {
             for (int j = i + 1; j < node->children.size() - 1; ++j) {
+                // Creates the MBR "J" from the two child nodes
                 MBR J = joinMBR(node->children[i]->mbr, node->children[j]->mbr);
+                // Calculates the blank area left in J
                 auto d = J.area() - node->children[i]->mbr.area() - node->children[j]->mbr.area();
                 if (d > largestD) {
                     largestD = d;
@@ -80,6 +83,7 @@ private:
         return {seed1, seed2};
     }
 
+    // Returns the furthest apart pair of points within a node.
     static std::pair<Point, Point> pickLeafSeeds(Node *&node) {
         Point seed1, seed2;
         auto largestD = 0;
@@ -102,14 +106,18 @@ private:
         return {seed1, seed2};
     }
 
+    // Splits a leaf node, returning the newly created node to be inserted on the parent.
     Node *splitLeaf(Node *&node, Point &data) {
         node->insertData(data);
+        // Obtains the furthest apart pair of points and places each on their own node.
         auto seeds = pickLeafSeeds(node);
         auto temp = node->data;
         node->data.clear();
         node->insertData(seeds.first);
         Node *LL = new Node();
         LL->insertData(seeds.second);
+        // Inserts the remaining data in whichever node is closest. If m hasn't been reached and the amount of
+        // unassigned data would get it to m, all the data is inserted in that node.
         for (int i = 0; i < temp.size(); ++i) {
             if (temp.size()-i + node->data.size() == m){
                 node->insertData(temp[i]);
@@ -127,6 +135,7 @@ private:
         return LL;
     }
 
+    // Adjusts the tree accordingly to insert the newly created node.
     void adjustTree(Node *&L, Node *&LL) {
         // If splitting root, create a new node and make it the root, add both L and LL as children
         if (!L->parent) {
@@ -151,6 +160,8 @@ private:
         parent->insertChild(seeds.first);
         auto newNode = new Node();
         newNode->insertChild(seeds.second);
+        // Inserts the remaining data in whichever node would have the smallest area.
+        //If m hasn't been reached and the amount of unassigned data would get it to m, all the data is inserted in that node.
         for (int i = 0; i < temp.size(); ++i) {
             if (temp.size() - i + parent->children.size() == m) {
                 newNode->insertChild(temp[i]);
@@ -169,10 +180,30 @@ private:
 
     }
 
+    // Recursively searches nodes for points that intersect with the given MBR.
+    void search(Node *node, MBR q, std::vector<Point> &result) {
+        if (node->isLeaf()){
+            if (!q.intersects(node->mbr)) return;
+            for (auto &p : node->data) {
+                if (q.contains(p)) result.push_back(p);
+            }
+            return;
+        }
+        for (const auto &n : node->children) {
+            if (q.intersects(n->mbr)) search(n, q, result);
+    }
+
+    }
+
 public:
     RTree(int m_, int M_) : m(m_), M(M_) {}
 
+    size_t size() {
+        return this->dataPoints;
+    }
+
     void insert(Point data) {
+        dataPoints++;
         if (!root) {
             root = new Node();
             root->insertData(data);
@@ -187,21 +218,9 @@ public:
         adjustTree(L, LL);
     }
 
-    void search(Node *node, MBR q, std::vector<Point> &result) {
-        if (node->isLeaf()){
-            for (auto &p : node->data) {
-                if (q.contains(p)) result.push_back(p);
-            }
-            return;
-        }
-        for (const auto &n : node->children) {
-            if (q.intersects(n->mbr)) search(n, q, result);
-        }
-
-    }
-
-    void query(Point A, Point B) {
+    std::vector<Point> query(Point A, Point B) {
         MBR q;
+        // Creates the MBR from the given points.
         if (A.x < B.x) {
             q.lowerLeft.x = A.x;
             q.upperRight.x = B.x;
@@ -217,9 +236,33 @@ public:
             q.upperRight.y = A.y;
         }
 
+        // Starts the recursive search from the root.
         auto curr = this->root;
         std::vector<Point> result;
         search(curr, q, result);
+        return result;
+    }
+
+    void loadFromCSV(std::string fileName) {
+        std::ifstream file(fileName);
+        std::string line;
+        bool header = true;
+        while (std::getline(file, line)) {
+            if (header) {
+                header = false;
+                continue;
+            }
+            std::stringstream ss(line);
+            std::string row;
+            std::vector<std::string> tokens;
+            while (std::getline(ss, row, ',')) {
+                tokens.push_back(row);
+            }
+            Point p;
+            p.x = std::stod(tokens[5]);
+            p.y = std::stod(tokens[6]);
+            insert(p);
+        }
     }
 
     // TODO: Destructor
